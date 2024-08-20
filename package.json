@@ -1,12 +1,15 @@
 {
   "scripts": {
-    "dev": "vite"
+    "dev": "vite",
+    "generate-test-proto": "pbf testData.proto > testDataGeneratedProtoInterface.mjs"
   },
   "devDependencies": {
     "vite": "^5.4.1"
   },
   "dependencies": {
     "bruh": "^1.13.1",
-    "tatami-ng": "^0.5.7"
+    "pbf": "^4.0.1",
+    "tatami-ng": "^0.5.7",
+    "zod": "^3.23.8"
   }
 }

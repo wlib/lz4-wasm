@@ -11,11 +11,17 @@ const c = @cImport({
     @cInclude("lz4.h");
 });
 
-const allocator = std.heap.page_allocator;
+const allocator = std.heap.wasm_allocator;
 
-pub export fn malloc(length: usize) ?[*]u8 {
-    const buff = allocator.alloc(u8, length) catch return null;
-    return buff.ptr;
+var allocation_to_size = std.AutoHashMap([*]u8, usize).init(allocator);
+
+pub export fn malloc(size: usize) ?[*]u8 {
+    const allocated = allocator.alloc(u8, size) catch return null;
+    allocation_to_size.put(allocated.ptr, size) catch {
+        allocator.free(allocated);
+        return null;
+    };
+    return allocated.ptr;
 }
 
 pub export fn calloc(nmemb: usize, size: usize) ?[*]u8 {
@@ -27,7 +33,20 @@ pub export fn calloc(nmemb: usize, size: usize) ?[*]u8 {
     return ptr;
 }
 
-pub export fn free(_: [*]u8) void {}
+pub export fn resize(ptr: [*]u8, new_size: usize) bool {
+    const size = allocation_to_size.get(ptr) orelse return false;
+    if (allocator.resize(ptr[0..size], new_size)) {
+        allocation_to_size.putAssumeCapacity(ptr, new_size);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+pub export fn free(ptr: [*]u8) void {
+    const kv = allocation_to_size.fetchRemove(ptr) orelse return;
+    allocator.free(ptr[0..kv.value]);
+}
 
 extern fn LZ4_compress_default(src: [*c]const u8, dst: [*c]u8, srcSize: c_int, dstCapacity: c_int) c_int;
 pub export fn compress(input_ptr: *const u8, input_size: usize, output_ptr: *u8, output_size: usize) usize {

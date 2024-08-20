@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "esModuleInterop": true,
+    "exactOptionalPropertyTypes": true,
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "JSXFragment",
+    "lib": ["ESNext", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "strict": true,
+    "target": "ESNext",
+    "useUnknownInCatchVariables": true
+  }
+}

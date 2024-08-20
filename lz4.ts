@@ -1,3 +1,5 @@
+import { makeAllocationClass } from "./allocation"
+
 const lz4 = await WebAssembly.instantiateStreaming(
   fetch("./zig-out/bin/lz4.wasm"),
   {
@@ -9,51 +11,30 @@ const lz4 = await WebAssembly.instantiateStreaming(
 const lz4Exports = lz4.instance.exports as {
   memory: WebAssembly.Memory
   malloc: (size: number) => number
+  resize: (pointer: number, size: number) => boolean
+  free: (pointer: number) => void
   compress: (inputPointer: number, inputLength: number, outputPointer: number, outputLength: number) => number
   decompress: (inputPointer: number, inputLength: number, outputPointer: number, outputLength: number) => number
 }
 
-class Allocation {
-  #pointer: number
-  #size: number
+class Allocation extends makeAllocationClass(lz4Exports) {}
 
-  constructor(size: number) {
-    this.#pointer = lz4Exports.malloc(size)
-    this.#size = size
-  }
+// const cloneArray = (input: Uint8Array) => {
+//   const clone = new Uint8Array(input.length)
+//   clone.set(input)
+//   return clone
+// }
 
-  get pointer() {
-    return this.#pointer
-  }
-
-  get size() {
-    return this.#size
-  }
-
-  get array(): Uint8Array {
-    return new Uint8Array(lz4Exports.memory.buffer, this.#pointer, this.#size)
-  }
-
-  static copyFromJs(array: Uint8Array) {
-    const allocation = new Allocation(array.byteLength)
-    allocation.array.set(array)
-    return allocation
-  }
-
-  copyToJs(begin?: number, end?: number) {
-    const array = this.array.subarray(begin, end)
-    const jsTypedArray = new Uint8Array(array.byteLength)
-    jsTypedArray.set(array)
-    return jsTypedArray
-  }
-}
-
-// Tries to isolate just memory allocation and copy overhead of compress() or decompress()
-export const copy = (inputJsTypedArray: Uint8Array) => {
+// Tries to isolate just memory allocation and copy overhead of string js -> wasm -> js
+export const copyString = (input: string) => {
+  const inputJsTypedArray = new TextEncoder().encode(input)
   const inputAllocation = Allocation.copyFromJs(inputJsTypedArray)
-  const outputAllocation = new Allocation(inputJsTypedArray.byteLength)
+  const outputAllocation = new Allocation(inputAllocation.size)
   outputAllocation.array.set(inputAllocation.array)
-  return outputAllocation.copyToJs()
+  inputAllocation.free()
+  const output = new TextDecoder().decode(outputAllocation.array)
+  outputAllocation.free()
+  return output
 }
 
 export const compress = (inputJsTypedArray: Uint8Array, maxSize = inputJsTypedArray.byteLength) => {
@@ -67,11 +48,11 @@ export const compress = (inputJsTypedArray: Uint8Array, maxSize = inputJsTypedAr
   )
   if (compressedSize > maxSize) return
 
-  return outputAllocation.copyToJs(0, compressedSize)
+  outputAllocation.resize(compressedSize)
+  return outputAllocation
 }
 
-export const decompress = (inputJsTypedArray: Uint8Array, maxSize: number) => {
-  const inputAllocation = Allocation.copyFromJs(inputJsTypedArray)
+export const decompress = (inputAllocation: Allocation, maxSize: number) => {
   const outputAllocation = new Allocation(maxSize)
   const decompressedSize = lz4Exports.decompress(
     inputAllocation.pointer,
@@ -81,7 +62,8 @@ export const decompress = (inputJsTypedArray: Uint8Array, maxSize: number) => {
   )
   if (decompressedSize > maxSize) return
 
-  return outputAllocation.copyToJs(0, decompressedSize)
+  outputAllocation.resize(decompressedSize)
+  return outputAllocation
 }
 
 export const compressString = (input: string) => {
@@ -91,7 +73,10 @@ export const compressString = (input: string) => {
   return { compressed, decompressedSize: inputJsTypedArray.byteLength }
 }
 
-export const decompressString = ({ compressed, decompressedSize }: { compressed: Uint8Array, decompressedSize: number }) => {
-  const outputJsTypedArray = decompress(compressed, decompressedSize)
-  return new TextDecoder().decode(outputJsTypedArray)
+export const decompressString = ({ compressed, decompressedSize }: { compressed: Allocation, decompressedSize: number }) => {
+  const outputAllocation = decompress(compressed, decompressedSize)
+  if (!outputAllocation) return
+  const ouput = new TextDecoder().decode(outputAllocation.array)
+  outputAllocation.free()
+  return ouput
 }
